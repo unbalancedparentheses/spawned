@@ -7,6 +7,7 @@ use crate::{
     process_table::{self, LinkError, SystemMessageSender},
     registry::{self, RegistryError},
     tasks::InitResult::{NoSuccess, Success},
+    Backend,
 };
 use core::pin::pin;
 use futures::future::{self, FutureExt};
@@ -408,24 +409,59 @@ pub trait Actor: Send + Sized {
     type Reply: Send + Sized;
     type Error: Debug + Send;
 
+    /// Start the Actor with the specified backend.
+    ///
+    /// This is the primary method for starting an Actor with explicit backend selection.
+    /// See [`Backend`] for details on each option.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Start on async runtime (default)
+    /// let handle = MyActor::new().start_with_backend(Backend::Async);
+    ///
+    /// // Start on blocking thread pool
+    /// let handle = MyActor::new().start_with_backend(Backend::Blocking);
+    ///
+    /// // Start on dedicated thread
+    /// let handle = MyActor::new().start_with_backend(Backend::Thread);
+    /// ```
+    fn start_with_backend(self, backend: Backend) -> ActorRef<Self> {
+        match backend {
+            Backend::Async => ActorRef::new(self),
+            Backend::Blocking => ActorRef::new_blocking(self),
+            Backend::Thread => ActorRef::new_on_thread(self),
+        }
+    }
+
+    /// Start the Actor on the async runtime.
+    ///
+    /// Equivalent to `start_with_backend(Backend::Async)`.
     fn start(self) -> ActorRef<Self> {
         ActorRef::new(self)
     }
 
+    /// Start the Actor on a blocking thread pool.
+    ///
     /// Tokio tasks depend on a collaborative multitasking model. "Work stealing" can't
     /// happen if the task is blocking the thread. As such, for sync compute tasks
     /// or other blocking tasks need to be in their own separate thread, and the OS
     /// will manage them through hardware interrupts.
-    /// `start_blocking` provides such a thread.
+    ///
+    /// Equivalent to `start_with_backend(Backend::Blocking)`.
     fn start_blocking(self) -> ActorRef<Self> {
         ActorRef::new_blocking(self)
     }
 
+    /// Start the Actor on a dedicated OS thread.
+    ///
     /// For some "singleton" Actors that run throughout the whole execution of the
     /// program, it makes sense to run in their own dedicated thread to avoid interference
     /// with the rest of the tasks' runtime.
     /// The use of `tokio::task::spawn_blocking` is not recommended for these scenarios
     /// as it is a limited thread pool better suited for blocking IO tasks that eventually end.
+    ///
+    /// Equivalent to `start_with_backend(Backend::Thread)`.
     fn start_on_thread(self) -> ActorRef<Self> {
         ActorRef::new_on_thread(self)
     }
